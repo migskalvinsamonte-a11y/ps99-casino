@@ -7,7 +7,7 @@ bot = commands.Bot(command_prefix="?", intents=intents)
 
 DB = "balances.json"
 CD = "cooldowns.json"
-OWNER_IDS = [] # Admins can /give anyway, or put your ID here: [123456789]
+OWNER_IDS = []
 
 def load(f):
     if not os.path.exists(f): return {}
@@ -64,7 +64,6 @@ async def daily(interaction: discord.Interaction):
     save(DB,db); save(CD,cds)
     await interaction.response.send_message(f"✅ Claimed **15M**! Balance: {fmt(data['balance'])}", ephemeral=True)
 
-# FIXED MINES - 20 tiles + cashout = 25 max (no crash)
 class MinesView(discord.ui.View):
     def __init__(self, uid, bet, bombs):
         super().__init__(timeout=180)
@@ -96,12 +95,17 @@ class MineBtn(discord.ui.Button):
             v.stop()
         else:
             v.revealed.add(self.idx); self.label="💎"; self.style=discord.ButtonStyle.success; self.disabled=True
-            v.mult = round(1 + len(v.revealed)*0.35 + v.bombs*0.2, 2)
+            # LOW 5 AND 10 NERFED
+            r = len(v.revealed)
+            if r <= 4:
+                v.mult = round(1 + r*0.03 + v.bombs*0.01, 2)
+            else:
+                v.mult = round(1 + 4*0.03 + (r-4)*0.01 + v.bombs*0.01, 2)
             won=int(v.bet*v.mult)
             e=discord.Embed(title="💣 Mines", color=0x2B88D8, description=f"**Bet:** {fmt(v.bet)} | **Bombs:** {v.bombs}\n**Cashout:** {fmt(won)} x{v.mult}\nRevealed: {len(v.revealed)}")
             await inter.response.edit_message(embed=e, view=v)
 
-@bot.tree.command(name="mines", description="Play mines min 1M - bet like 1M, 10M")
+@bot.tree.command(name="mines", description="Play mines min 1M")
 @app_commands.describe(bet="Ex: 1M, 10M, 100M", bombs="1-10 bombs")
 async def mines(interaction: discord.Interaction, bet: str, bombs: int=3):
     try: bval = parse_amount(bet)
@@ -111,7 +115,6 @@ async def mines(interaction: discord.Interaction, bet: str, bombs: int=3):
     data, db = get_user(interaction.user.id)
     if data["balance"] < bval: return await interaction.response.send_message(f"❌ You have {fmt(data['balance'])}", ephemeral=True)
     data["balance"]-=bval; db[str(interaction.user.id)]=data; save(DB,db)
-
     view = MinesView(interaction.user.id, bval, bombs)
     cash = discord.ui.Button(label="Cashout", style=discord.ButtonStyle.green, row=4, emoji="💸")
     async def cash_cb(inter: discord.Interaction):
