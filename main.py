@@ -95,23 +95,20 @@ class MineBtn(discord.ui.Button):
             v.stop()
         else:
             v.revealed.add(self.idx); self.label="💎"; self.style=discord.ButtonStyle.success; self.disabled=True
-            # LOW 5 AND 10 NERFED
             r = len(v.revealed)
-            if r <= 4:
-                v.mult = round(1 + r*0.03 + v.bombs*0.01, 2)
-            else:
-                v.mult = round(1 + 4*0.03 + (r-4)*0.01 + v.bombs*0.01, 2)
+            # HIGH BOMBS = HIGH FIRST TILE
+            v.mult = round(1 + (r * 0.02) + (r*(r-1)/2 * 0.03) + (v.bombs * 0.08), 2)
             won=int(v.bet*v.mult)
             e=discord.Embed(title="💣 Mines", color=0x2B88D8, description=f"**Bet:** {fmt(v.bet)} | **Bombs:** {v.bombs}\n**Cashout:** {fmt(won)} x{v.mult}\nRevealed: {len(v.revealed)}")
             await inter.response.edit_message(embed=e, view=v)
 
-@bot.tree.command(name="mines", description="Play mines min 1M")
-@app_commands.describe(bet="Ex: 1M, 10M, 100M", bombs="1-10 bombs")
+@bot.tree.command(name="mines", description="Play mines min 1M - bombs up to 19")
+@app_commands.describe(bet="Ex: 1M, 10M, 100M", bombs="1-19 bombs")
 async def mines(interaction: discord.Interaction, bet: str, bombs: int=3):
     try: bval = parse_amount(bet)
     except: return await interaction.response.send_message("Use like 1M, 10M, 1B", ephemeral=True)
     if bval < 1_000_000: return await interaction.response.send_message("❌ Min 1M!", ephemeral=True)
-    if bombs<1 or bombs>10: return await interaction.response.send_message("Bombs 1-10", ephemeral=True)
+    if bombs<1 or bombs>19: return await interaction.response.send_message("Bombs 1-19!", ephemeral=True)
     data, db = get_user(interaction.user.id)
     if data["balance"] < bval: return await interaction.response.send_message(f"❌ You have {fmt(data['balance'])}", ephemeral=True)
     data["balance"]-=bval; db[str(interaction.user.id)]=data; save(DB,db)
