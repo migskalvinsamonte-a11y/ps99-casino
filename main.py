@@ -1,7 +1,7 @@
 import discord, json, os, random, asyncio
 from discord.ext import commands
 
-TOKEN = "MTUzNzUwNzU3MTc2NDY5NTA5MA.GgulP6.NlQQn8EetN0HkdsYvO4x0bvJ17s_woTpQAwbDo"
+TOKEN = os.getenv("TOKEN") or os.getenv("DISCORD_TOKEN") or os.getenv("BOT_TOKEN")
 DATA_FILE = "data.json"
 OWNER_ID = 1536946071769718784
 
@@ -301,5 +301,8 @@ async def chicken_cmd(inter: discord.Interaction, bet: str):
     go_btn.callback=go_cb; cash_btn.callback=cash_cb
     await inter.response.send_message(embed=embed, view=view)
 
-bot.run(TOKEN)
-    
+if not TOKEN:
+    print("ERROR: No TOKEN env var! Set TOKEN in Railway Variables")
+    print("Railway -> Your Project -> Variables -> Add TOKEN")
+else:
+    bot.run(TOKEN)
