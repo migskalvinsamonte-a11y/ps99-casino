@@ -95,16 +95,15 @@ class MineBtn(discord.ui.Button):
             v.stop()
         else:
             v.revealed.add(self.idx); self.label="💎"; self.style=discord.ButtonStyle.success; self.disabled=True
-            r = len(v.revealed)
-            # HIGH BOMBS = HIGH FIRST TILE
-            v.mult = round(1 + (r * 0.02) + (r*(r-1)/2 * 0.03) + (v.bombs * 0.08), 2)
+            r = len(v.revealed); b = v.bombs
+            v.mult = round(1 + (b * 0.036) + (r-1)*0.03 + ((r-1)**2)*0.03, 2)
             won=int(v.bet*v.mult)
             e=discord.Embed(title="💣 Mines", color=0x2B88D8, description=f"**Bet:** {fmt(v.bet)} | **Bombs:** {v.bombs}\n**Cashout:** {fmt(won)} x{v.mult}\nRevealed: {len(v.revealed)}")
             await inter.response.edit_message(embed=e, view=v)
 
 @bot.tree.command(name="mines", description="Play mines min 1M - bombs up to 19")
 @app_commands.describe(bet="Ex: 1M, 10M, 100M", bombs="1-19 bombs")
-async def mines(interaction: discord.Interaction, bet: str, bombs: int=3):
+async def mines(interaction: discord.Interaction, bet: str, bombs: int=5):
     try: bval = parse_amount(bet)
     except: return await interaction.response.send_message("Use like 1M, 10M, 1B", ephemeral=True)
     if bval < 1_000_000: return await interaction.response.send_message("❌ Min 1M!", ephemeral=True)
@@ -127,6 +126,92 @@ async def mines(interaction: discord.Interaction, bet: str, bombs: int=3):
     cash.callback=cash_cb; view.add_item(cash)
     e=discord.Embed(title="💣 Mines", color=0x2B88D8, description=f"**Bet:** {fmt(bval)} | **Bombs:** {bombs}\n**Cashout:** {fmt(bval)} x1.0")
     await interaction.response.send_message(embed=e, view=view)
+
+def card_val(cards):
+    v=0; aces=0
+    for c in cards:
+        r=c[:-1]
+        if r in ["J","Q","K"]: v+=10
+        elif r=="A": v+=11; aces+=1
+        else: v+=int(r)
+    while v>21 and aces: v-=10; aces-=1
+    return v
+
+def hand_str(cards): return " ".join(cards)
+
+class BJView(discord.ui.View):
+    def __init__(self, uid, bet):
+        super().__init__(timeout=120)
+        self.uid=uid; self.bet=bet
+        deck=[f"{r}{s}" for r in ["A","2","3","4","5","6","7","8","9","10","J","Q","K"] for s in ["♠","♥","♦","♣"]]*2
+        random.shuffle(deck)
+        self.deck=deck
+        self.p=[deck.pop(), deck.pop()]
+        self.d=[deck.pop(), deck.pop()]
+    def embed(self, hide=True):
+        pv=card_val(self.p); dv=card_val([self.d[0]]) if hide else card_val(self.d)
+        e=discord.Embed(title="♠️ Blackjack", color=0x2B88D8)
+        e.add_field(name=f"Your Hand ({pv})", value=hand_str(self.p), inline=False)
+        if hide: e.add_field(name=f"Dealer ({dv}+?)", value=f"{self.d[0]} 🂠", inline=False)
+        else: e.add_field(name=f"Dealer ({dv})", value=hand_str(self.d), inline=False)
+        e.set_footer(text=f"Bet: {fmt(self.bet)} | Win 2x | Blackjack 2.5x")
+        return e
+
+@bot.tree.command(name="blackjack", description="Play blackjack min 1M - Win 2x, Blackjack 2.5x")
+@app_commands.describe(bet="Ex: 1M, 10M")
+async def blackjack(interaction: discord.Interaction, bet: str):
+    try: bval=parse_amount(bet)
+    except: return await interaction.response.send_message("Use 1M, 10M, 1B", ephemeral=True)
+    if bval<1_000_000: return await interaction.response.send_message("❌ Min 1M!", ephemeral=True)
+    data,db=get_user(interaction.user.id)
+    if data["balance"]<bval: return await interaction.response.send_message(f"❌ You have {fmt(data['balance'])}", ephemeral=True)
+    data["balance"]-=bval; db[str(interaction.user.id)]=data; save(DB,db)
+    view=BJView(interaction.user.id, bval)
+    pv=card_val(view.p); dv_full=card_val(view.d)
+    if pv==21:
+        if dv_full==21:
+            d,_=get_user(interaction.user.id); d["balance"]+=bval; save(DB,db)
+            return await interaction.response.send_message(embed=discord.Embed(title="Push! Both Blackjack", color=0xFFFF00, description=f"Returned {fmt(bval)}"))
+        else:
+            win=int(bval*2.5) # 2.5x for blackjack
+            d,db=get_user(interaction.user.id); d["balance"]+=win; d["wagered"]+=bval; d["profit"]+=win-bval; db[str(interaction.user.id)]=d; save(DB,db)
+            return await interaction.response.send_message(embed=discord.Embed(title="BLACKJACK! 2.5x", color=0x00FF00, description=f"Won {fmt(win)} (2.5x)"))
+    hit=discord.ui.Button(label="Hit", style=discord.ButtonStyle.primary, emoji="🃏")
+    stand=discord.ui.Button(label="Stand", style=discord.ButtonStyle.success, emoji="✋")
+    async def hit_cb(inter: discord.Interaction):
+        if inter.user.id!=view.uid: return
+        view.p.append(view.deck.pop())
+        pv=card_val(view.p)
+        if pv>21:
+            d,db=get_user(interaction.user.id); d["wagered"]+=view.bet; d["profit"]-=view.bet; db[str(interaction.user.id)]=d; save(DB,db)
+            e=view.embed(hide=False); e.title="💥 BUST! You lost"; e.color=0xFF0000
+            for c in view.children: c.disabled=True
+            await inter.response.edit_message(embed=e, view=view); view.stop()
+        else:
+            await inter.response.edit_message(embed=view.embed(), view=view)
+    async def stand_cb(inter: discord.Interaction):
+        if inter.user.id!=view.uid: return
+        while card_val(view.d)<17:
+            view.d.append(view.deck.pop())
+        pv=card_val(view.p); dv=card_val(view.d)
+        e=view.embed(hide=False)
+        d,db=get_user(interaction.user.id)
+        if dv>21 or pv>dv:
+            win=bval*2 # 2x for normal win
+            d["balance"]+=win; d["wagered"]+=bval; d["profit"]+=win-bval
+            e.title=f"✅ You Win! {pv} vs {dv} - 2x"; e.color=0x00FF00; e.description=f"Won **{fmt(win)}** (2x)"
+        elif pv==dv:
+            d["balance"]+=bval
+            e.title=f"Push {pv} vs {dv}"; e.color=0xFFFF00; e.description=f"Returned {fmt(bval)}"
+        else:
+            d["wagered"]+=bval; d["profit"]-=bval
+            e.title=f"❌ Dealer Wins {dv} vs {pv}"; e.color=0xFF0000; e.description=f"Lost {fmt(bval)}"
+        db[str(interaction.user.id)]=d; save(DB,db)
+        for c in view.children: c.disabled=True
+        await inter.response.edit_message(embed=e, view=view); view.stop()
+    hit.callback=hit_cb; stand.callback=stand_cb
+    view.add_item(hit); view.add_item(stand)
+    await interaction.response.send_message(embed=view.embed(), view=view)
 
 @bot.tree.command(name="give", description="Give gems ADMIN ONLY")
 @app_commands.describe(user="User", amount="1M, 100M, 1B")
