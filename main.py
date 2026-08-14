@@ -1,179 +1,305 @@
-import discord, os, json, random, time
-from discord import app_commands
+import discord, json, os, random, asyncio
 from discord.ext import commands
 
-OWNER_ID = 1536946071769718784 # Elix - Owner only can give/remove
+TOKEN = "MTUzNzUwNzU3MTc2NDY5NTA5MA.GgulP6.NlQQn8EetN0HkdsYvO4x0bvJ17s_woTpQAwbDo"
+DATA_FILE = "data.json"
+OWNER_ID = 1536946071769718784
 
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
+data = {}
 
-balances = {}
-cooldowns = {}
-
-def load_file(name):
-    if not os.path.exists(name): return {}
-    try:
-        with open(name, "r") as f: return json.load(f)
-    except: return {}
-
+def load_data():
+    global data
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f: data = json.load(f)
+    else: data = {}
 async def save_all():
-    with open("balances.json", "w") as f: json.dump(balances, f)
-    with open("cooldowns.json", "w") as f: json.dump(cooldowns, f)
-
-def fmt(n):
-    if n >= 1000000000: return f"{n/1000000000:.2f}B"
-    if n >= 1000000: return f"{n/1000000:.2f}M"
-    if n >= 1000: return f"{n/1000:.1f}K"
-    return str(int(n))
-
-def parse_amount(s):
-    s = str(s).upper().replace(",", "").strip()
-    m = 1
-    if s.endswith("B"): m = 1000000000; s = s[:-1]
-    elif s.endswith("M"): m = 1000000; s = s[:-1]
-    elif s.endswith("K"): m = 1000; s = s[:-1]
-    return int(float(s) * m)
-
+    with open(DATA_FILE, "w") as f: json.dump(data, f)
 def get_data(uid):
     uid = str(uid)
-    if uid not in balances:
-        balances[uid] = {"balance":0, "deposited":0, "withdrawn":0, "wagered":0, "profit":0}
-    for k in ["deposited","withdrawn","wagered","profit"]:
-        if k not in balances[uid]: balances[uid][k]=0
-    return balances[uid]
+    if uid not in data: data[uid] = {"balance": 10000, "wagered":0, "profit":0}
+    return data[uid]
+def parse_amount(s, bal=0):
+    s=str(s).lower().replace(",","").strip()
+    if s in ["all","max"]: return bal
+    m=1
+    if s.endswith("k"): m=1000; s=s[:-1]
+    elif s.endswith("m"): m=1000000; s=s[:-1]
+    elif s.endswith("b"): m=1000000000; s=s[:-1]
+    return int(float(s)*m)
+def fmt(n):
+    if n>=1_000_000_000: return f"{n/1_000_000_000:.2f}B"
+    if n>=1_000_000: return f"{n/1_000_000:.2f}M"
+    if n>=1_000: return f"{n/1_000:.1f}K"
+    return str(int(n))
 
 @bot.event
 async def on_ready():
-    global balances, cooldowns
-    balances = load_file("balances.json")
-    cooldowns = load_file("cooldowns.json")
+    load_data()
     await bot.tree.sync()
     print(f"ONLINE {bot.user}")
 
-@bot.tree.command(name="balance", description="Check balance")
-async def balance_cmd(interaction: discord.Interaction):
-    d = get_data(interaction.user.id)
-    desc = f"💎 **Balance** `{fmt(d['balance'])} ({d['balance']:,})`\n"
-    desc += f"📥 **Deposited** `{fmt(d['deposited'])}`\n"
-    desc += f"📤 **Withdrawn** `{fmt(d['withdrawn'])}`\n"
-    desc += f"💎 **Wagered** `{fmt(d['wagered'])}`\n"
-    desc += f"💸 **Profit** `{fmt(d['profit'])}`"
-    embed = discord.Embed(title=f"{interaction.user.display_name}'s balance", description=desc, color=0x2B2D31)
-    embed.set_thumbnail(url=interaction.user.display_avatar.url)
-    await interaction.response.send_message(embed=embed)
+# --- BALANCE / ADMIN / TIP ---
+@bot.tree.command(name="balance", description="Check gems")
+async def bal_cmd(inter: discord.Interaction, user: discord.Member=None):
+    t=user or inter.user
+    d=get_data(t.id)
+    await inter.response.send_message(f"💎 {t.mention} - **{fmt(d['balance'])} gems**")
 
-class MineBtn(discord.ui.Button):
-    def __init__(self, idx, is_bomb=False, revealed=False):
-        style = discord.ButtonStyle.secondary
-        label = "?"
-        if revealed:
-            style = discord.ButtonStyle.danger if is_bomb else discord.ButtonStyle.secondary
-            label = "💣" if is_bomb else "💎"
-        super().__init__(style=style, label=label, row=idx//5, disabled=revealed)
-        self.idx = idx
-    async def callback(self, inter: discord.Interaction):
-        view: MinesView = self.view
-        if inter.user.id!= view.uid:
-            return await inter.response.send_message("Not your game!", ephemeral=True)
-        view.revealed.add(self.idx)
-        if self.idx in view.bomb_pos:
-            embed = discord.Embed(color=0xED4245)
-            embed.title = "💣 Mines - BUSTED"
-            gems_found = len([r for r in view.revealed if r not in view.bomb_pos])
-            total_gems = 25 - view.bombs
-            reached = round(1.0 + gems_found * 0.24, 2)
-            embed.description = f"💎 **Bet** `{fmt(view.bet)}`\n✨ **Reached** `{reached}x`\n💎 **Gems found** `{gems_found}/{total_gems}`\n💣 **Bombs** `{view.bombs}`\n\nYou struck a bomb and lost your bet. 💣 shows every mine."
-            new_view = discord.ui.View()
-            for i in range(25):
-                is_bomb = i in view.bomb_pos
-                new_view.add_item(MineBtn(i, is_bomb=is_bomb, revealed=True))
-            d = get_data(inter.user.id); d["wagered"] += view.bet; d["profit"] -= view.bet
-            await save_all()
-            await inter.response.edit_message(embed=embed, view=new_view)
-        else:
-            gems_found = len([r for r in view.revealed if r not in view.bomb_pos])
-            total_gems = 25 - view.bombs
-            reached = round(1.0 + gems_found * 0.26, 2)
-            current_win = int(view.bet * reached)
-            embed = discord.Embed(color=0x57F287)
-            embed.title = "💣 Mines"
-            embed.description = f"💎 **Bet** `{fmt(view.bet)}`\n✨ **Reached** `{reached}x`\n💎 **Gems found** `{gems_found}/{total_gems}`\n💣 **Bombs** `{view.bombs}`\n\nCurrent win: **{fmt(current_win)}**"
-            new_view = MinesView(view.uid, view.bet, view.bombs)
-            new_view.revealed = view.revealed; new_view.bomb_pos = view.bomb_pos
-            new_view.clear_items()
-            for i in range(25):
-                is_bomb = i in view.bomb_pos; is_rev = i in view.revealed
-                btn = MineBtn(i, is_bomb=is_bomb, revealed=is_rev)
-                if is_rev and not is_bomb: btn.style = discord.ButtonStyle.success
-                new_view.add_item(btn)
-            cash = discord.ui.Button(label=f"Cashout {fmt(current_win)}", style=discord.ButtonStyle.success, row=4, emoji="💸")
-            async def cash_cb(c_inter: discord.Interaction):
-                if c_inter.user.id!= new_view.uid: return await c_inter.response.send_message("Not yours", ephemeral=True)
-                win = int(new_view.bet * reached)
-                d2 = get_data(c_inter.user.id); d2["balance"] += win; d2["wagered"] += new_view.bet; d2["profit"] += win - new_view.bet; d2["withdrawn"] += win
-                await save_all()
-                e = discord.Embed(color=0xFEE75C); e.title = "💰 Mines - CASHOUT"
-                e.description = f"💎 **Bet** `{fmt(new_view.bet)}`\n✨ **Reached** `{reached}x`\n💎 **Gems found** `{gems_found}/{total_gems}`\n\nYou cashed out **{fmt(win)}**!"
-                await c_inter.response.edit_message(embed=e, view=discord.ui.View())
-            cash.callback = cash_cb; new_view.add_item(cash)
-            await inter.response.edit_message(embed=embed, view=new_view)
+@bot.tree.command(name="addgems", description="Owner only")
+async def add_cmd(inter: discord.Interaction, user: discord.Member, amount: str):
+    if inter.user.id!= OWNER_ID: return await inter.response.send_message("❌ Owner only", ephemeral=True)
+    try: b=parse_amount(amount)
+    except: return await inter.response.send_message("Bad amount", ephemeral=True)
+    d=get_data(user.id); d["balance"]+=b; await save_all()
+    await inter.response.send_message(f"✅ Added {fmt(b)} to {user.mention} | Now {fmt(d['balance'])}")
 
+@bot.tree.command(name="removegems", description="Owner only")
+async def rem_cmd(inter: discord.Interaction, user: discord.Member, amount: str):
+    if inter.user.id!= OWNER_ID: return await inter.response.send_message("❌ Owner only", ephemeral=True)
+    try: b=parse_amount(amount)
+    except: return await inter.response.send_message("Bad amount", ephemeral=True)
+    d=get_data(user.id); d["balance"]=max(0,d["balance"]-b); await save_all()
+    await inter.response.send_message(f"✅ Removed {fmt(b)} from {user.mention} | Now {fmt(d['balance'])}")
+
+@bot.tree.command(name="tip", description="Tip anyone")
+async def tip_cmd(inter: discord.Interaction, user: discord.Member, amount: str):
+    if user.id==inter.user.id: return await inter.response.send_message("Can't tip self", ephemeral=True)
+    d=get_data(inter.user.id)
+    try: b=parse_amount(amount, d["balance"])
+    except: return await inter.response.send_message("Bad amount", ephemeral=True)
+    if d["balance"]<b: return await inter.response.send_message(f"You have {fmt(d['balance'])}", ephemeral=True)
+    d["balance"]-=b; get_data(user.id)["balance"]+=b; await save_all()
+    await inter.response.send_message(f"💸 {inter.user.mention} tipped **{fmt(b)} gems** to {user.mention}")
+
+# --- 1. MINES ---
 class MinesView(discord.ui.View):
-    def __init__(self, uid, bet, bombs):
-        super().__init__(timeout=180)
-        self.uid = uid; self.bet = bet; self.bombs = bombs; self.revealed = set()
-        self.bomb_pos = set(random.sample(range(25), bombs))
-        for i in range(25): self.add_item(MineBtn(i))
+    def __init__(self, uid, bet, mines=5):
+        super().__init__(timeout=300); self.uid=uid; self.bet=bet; self.mines=mines
+        self.mine_pos=set(random.sample(range(25), mines))
+        self.revealed=set(); self.mult=1.0
+        for i in range(25):
+            btn = discord.ui.Button(label="❓", style=discord.ButtonStyle.gray, custom_id=str(i))
+            btn.callback = self.make_cb(i)
+            self.add_item(btn)
+    def make_cb(self, idx):
+        async def cb(inter: discord.Interaction):
+            if inter.user.id!=self.uid: return await inter.response.send_message("Not yours", ephemeral=True)
+            if idx in self.revealed: return
+            if idx in self.mine_pos:
+                for c in self.children:
+                    if int(c.custom_id) in self.mine_pos: c.label="💣"; c.style=discord.ButtonStyle.red
+                    c.disabled=True
+                embed=discord.Embed(color=0xED4245, title="💣 MINES - BOOM!")
+                embed.description=f"Lost {fmt(self.bet)}"
+                d=get_data(inter.user.id); d["profit"]-=self.bet; d["wagered"]+=self.bet; await save_all()
+                await inter.response.edit_message(embed=embed, view=self); self.stop()
+            else:
+                self.revealed.add(idx)
+                for c in self.children:
+                    if int(c.custom_id)==idx: c.label="💎"; c.style=discord.ButtonStyle.green; c.disabled=True
+                # mult formula: (25 / (25 - mines - revealed)) cumulative
+                self.mult = round(0.97 * (25 / (25 - len(self.revealed) - self.mines + 1)) if len(self.revealed)==1 else self.mult * (25 - len(self.revealed) - self.mines +1 +1)/(25 - len(self.revealed) - self.mines +1) ,2)
+                # simple growing mult
+                self.mult = round(1 + len(self.revealed)*0.25 + (len(self.revealed)**2)*0.05,2)
+                embed=discord.Embed(color=0x2ECC71, title="💎 MINES")
+                embed.description=f"Bet {fmt(self.bet)} | Gems: {len(self.revealed)}/ {25-self.mines} | {self.mult}x = {fmt(int(self.bet*self.mult))}\nClick to continue or cashout"
+                view2 = self
+                # add cashout button if not exists
+                if len([c for c in view2.children if c.label.startswith("CASHOUT")])==0:
+                    cash=discord.ui.Button(label=f"CASHOUT {self.mult}x", style=discord.ButtonStyle.success)
+                    async def cash_cb(i2: discord.Interaction):
+                        if i2.user.id!=self.uid: return await i2.response.send_message("Not yours",ephemeral=True)
+                        win=int(self.bet*self.mult)
+                        d=get_data(i2.user.id); d["balance"]+=win; d["wagered"]+=self.bet; d["profit"]+=win-self.bet; await save_all()
+                        embed2=discord.Embed(color=0xFEE75C, title="💰 CASHOUT"); embed2.description=f"Won {fmt(win)} at {self.mult}x"
+                        for c in view2.children: c.disabled=True
+                        await i2.response.edit_message(embed=embed2, view=view2); view2.stop()
+                    cash.callback=cash_cb
+                    view2.add_item(cash)
+                else:
+                    for c in view2.children:
+                        if c.label.startswith("CASHOUT"): c.label=f"CASHOUT {self.mult}x = {fmt(int(self.bet*self.mult))}"
+                await inter.response.edit_message(embed=embed, view=view2)
+        return cb
 
-@bot.tree.command(name="mines", description="Play mines")
-async def mines_cmd(interaction: discord.Interaction, bet: str, bombs: int = 3):
-    try: bval = parse_amount(bet)
-    except: return await interaction.response.send_message("Use like 1M", ephemeral=True)
-    if bval < 100000: return await interaction.response.send_message("Min 100K", ephemeral=True)
-    d = get_data(interaction.user.id)
-    if d["balance"] < bval: return await interaction.response.send_message(f"You need {fmt(bval)} have {fmt(d['balance'])}", ephemeral=True)
-    d["balance"] -= bval; await save_all()
-    view = MinesView(interaction.user.id, bval, bombs)
-    embed = discord.Embed(color=0x5865F2); embed.title = "💣 Mines"
-    embed.description = f"💎 **Bet** `{fmt(bval)}`\n✨ **Reached** `1.0x`\n💎 **Gems found** `0/{25-bombs}`\n💣 **Bombs** `{bombs}`\n\nFind 💎 avoid 💣"
-    await interaction.response.send_message(embed=embed, view=view)
+@bot.tree.command(name="mines", description="Mines game")
+async def mines_cmd(inter: discord.Interaction, bet: str, mines: int=3):
+    try: bval=parse_amount(bet)
+    except: return await inter.response.send_message("Bad bet",ephemeral=True)
+    d=get_data(inter.user.id)
+    if d["balance"]<bval: return await inter.response.send_message("Broke",ephemeral=True)
+    d["balance"]-=bval; await save_all()
+    view=MinesView(inter.user.id, bval, max(1,min(20,mines)))
+    embed=discord.Embed(color=0x2ECC71, title="💎 MINES"); embed.description=f"Bet {fmt(bval)} | {mines} mines | Find gems!"
+    await inter.response.send_message(embed=embed, view=view)
 
-@bot.tree.command(name="daily", description="Claim 15M every 24h")
-async def daily_cmd(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-    uid = str(interaction.user.id); now = time.time(); last = cooldowns.get(uid, 0)
-    if now - last < 86400:
-        left = int(86400 - (now - last))
-        return await interaction.followup.send(f"Come back in {left//3600}h {(left%3600)//60}m", ephemeral=True)
-    d = get_data(interaction.user.id); d["balance"] += 15000000; d["deposited"] += 15000000
-    cooldowns[uid] = now; await save_all()
-    await interaction.followup.send(f"✅ +15M! Balance: {fmt(d['balance'])}", ephemeral=True)
+# --- 2. BLACKJACK ---
+@bot.tree.command(name="blackjack", description="Blackjack")
+async def bj_cmd(inter: discord.Interaction, bet: str):
+    try: bval=parse_amount(bet)
+    except: return await inter.response.send_message("Bad bet",ephemeral=True)
+    d=get_data(inter.user.id)
+    if d["balance"]<bval: return await inter.response.send_message("Broke",ephemeral=True)
+    d["balance"]-=bval; await save_all()
+    deck=[2,3,4,5,6,7,8,9,10,10,10,10,11]*4
+    random.shuffle(deck)
+    def score(h): 
+        s=sum(h); ac=h.count(11)
+        while s>21 and ac: s-=10; ac-=1
+        return s
+    ph=[deck.pop(), deck.pop()]; dh=[deck.pop(), deck.pop()]
+    class BJView(discord.ui.View):
+        def __init__(self):
+            super().__init__(timeout=60)
+        @discord.ui.button(label="HIT", style=discord.ButtonStyle.primary)
+        async def hit(self, i2: discord.Interaction, btn):
+            if i2.user.id!=inter.user.id: return
+            ph.append(deck.pop())
+            if score(ph)>21:
+                embed=discord.Embed(color=0xED4245, title="BUST"); embed.description=f"You {score(ph)} vs Dealer {score(dh)} | Lost {fmt(bval)}"
+                d2=get_data(i2.user.id); d2["profit"]-=bval; d2["wagered"]+=bval; await save_all()
+                for c in self.children: c.disabled=True
+                await i2.response.edit_message(embed=embed, view=self); self.stop()
+            else:
+                embed=discord.Embed(color=0x2ECC71, title="Blackjack"); embed.description=f"You: {ph} = {score(ph)}\nDealer: [{dh[0]}, ?]\nHit or Stand?"
+                await i2.response.edit_message(embed=embed, view=self)
+        @discord.ui.button(label="STAND", style=discord.ButtonStyle.success)
+        async def stand(self, i2: discord.Interaction, btn):
+            if i2.user.id!=inter.user.id: return
+            while score(dh)<17: dh.append(deck.pop())
+            ps=score(ph); ds=score(dh)
+            embed=discord.Embed(color=0x2ECC71)
+            if ds>21 or ps>ds:
+                win=int(bval*2); d2=get_data(i2.user.id); d2["balance"]+=win; d2["profit"]+=bval; d2["wagered"]+=bval; await save_all()
+                embed.title="WIN"; embed.description=f"You {ps} vs Dealer {ds} | Won {fmt(win)}"
+            elif ps==ds:
+                d2=get_data(i2.user.id); d2["balance"]+=bval; await save_all()
+                embed.title="PUSH"; embed.description=f"You {ps} vs Dealer {ds} | Refund"
+            else:
+                embed.title="LOSE"; embed.description=f"You {ps} vs Dealer {ds} | Lost {fmt(bval)}"
+                d2=get_data(i2.user.id); d2["profit"]-=bval; d2["wagered"]+=bval; await save_all()
+            for c in self.children: c.disabled=True
+            await i2.response.edit_message(embed=embed, view=self); self.stop()
+    embed=discord.Embed(color=0x2ECC71, title="Blackjack"); embed.description=f"You: {ph} = {score(ph)}\nDealer: [{dh[0]}, ?]"
+    await inter.response.send_message(embed=embed, view=BJView())
 
-@bot.tree.command(name="give", description="Give gems [OWNER ONLY]")
-async def give_cmd(interaction: discord.Interaction, user: discord.Member, amount: str):
-    if interaction.user.id!= OWNER_ID: return await interaction.response.send_message("❌ Only owner can use!", ephemeral=True)
-    try: bval = parse_amount(amount)
-    except: return await interaction.response.send_message("Use 1M", ephemeral=True)
-    d = get_data(user.id); d["balance"] += bval; d["deposited"] += bval; await save_all()
-    await interaction.response.send_message(f"✅ Gave {fmt(bval)} to {user.mention}")
+# --- 3. ROCKET / CRASH ---
+@bot.tree.command(name="rocket", description="Rocket crash")
+async def rocket_cmd(inter: discord.Interaction, bet: str):
+    try: bval=parse_amount(bet)
+    except: return await inter.response.send_message("Bad bet",ephemeral=True)
+    d=get_data(inter.user.id)
+    if d["balance"]<bval: return await inter.response.send_message("Broke",ephemeral=True)
+    d["balance"]-=bval; await save_all()
+    crash = round(random.uniform(1.05, 15.0) if random.random()>0.1 else random.uniform(1.0,1.1),2)
+    class RocketView(discord.ui.View):
+        def __init__(self):
+            super().__init__(timeout=60); self.cur=1.0; self.crashed=False
+        @discord.ui.button(label="CASHOUT 1.00x", style=discord.ButtonStyle.success)
+        async def cash(self, i2: discord.Interaction, btn):
+            if i2.user.id!=inter.user.id: return
+            if self.crashed: return
+            win=int(bval*self.cur); d2=get_data(i2.user.id); d2["balance"]+=win; d2["profit"]+=win-bval; d2["wagered"]+=bval; await save_all()
+            embed=discord.Embed(color=0xFEE75C, title="🚀 CASHOUT"); embed.description=f"Cashed at {self.cur}x = {fmt(win)}\nCrash was {crash}x"
+            for c in self.children: c.disabled=True
+            await i2.response.edit_message(embed=embed, view=self); self.stop()
+    embed=discord.Embed(color=0x3498DB, title="🚀 ROCKET"); embed.description=f"Bet {fmt(bval)} | Crash at ???\nRocket flying..."
+    view=RocketView()
+    await inter.response.send_message(embed=embed, view=view)
+    for i in range(100):
+        await asyncio.sleep(0.6)
+        if view.is_finished(): return
+        view.cur = round(1 + i*0.12 + (i**2)*0.005,2)
+        if view.cur >= crash:
+            view.crashed=True
+            embed2=discord.Embed(color=0xED4245, title="💥 CRASHED!"); embed2.description=f"Crashed at {crash}x\nLost {fmt(bval)}"
+            d2=get_data(inter.user.id); d2["profit"]-=bval; d2["wagered"]+=bval; await save_all()
+            for c in view.children: c.disabled=True
+            try: await inter.edit_original_response(embed=embed2, view=view)
+            except: pass
+            view.stop(); break
+        else:
+            embed.description=f"Bet {fmt(bval)} | Current **{view.cur}x** = {fmt(int(bval*view.cur))}\nCrash at ???"
+            for c in view.children: c.label=f"CASHOUT {view.cur}x = {fmt(int(bval*view.cur))}"
+            try: await inter.edit_original_response(embed=embed, view=view)
+            except: pass
 
-@bot.tree.command(name="removegems", description="Remove gems [OWNER ONLY]")
-async def remove_cmd(interaction: discord.Interaction, user: discord.Member, amount: str):
-    if interaction.user.id!= OWNER_ID: return await interaction.response.send_message("❌ Only owner can use!", ephemeral=True)
-    try: bval = parse_amount(amount)
-    except: return await interaction.response.send_message("Use 1M", ephemeral=True)
-    d = get_data(user.id); d["balance"] = max(0, d["balance"] - bval); await save_all()
-    await interaction.response.send_message(f"✅ Removed {fmt(bval)} from {user.mention} | New: {fmt(d['balance'])}")
+# --- 4. COLOR DICE ---
+@bot.tree.command(name="colordice", description="Color dice - bet on color")
+async def colordice_cmd(inter: discord.Interaction, bet: str, color: str):
+    try: bval=parse_amount(bet)
+    except: return await inter.response.send_message("Bad bet",ephemeral=True)
+    d=get_data(inter.user.id)
+    if d["balance"]<bval: return await inter.response.send_message("Broke",ephemeral=True)
+    colors=["red","blue","green","yellow","purple","gold"]
+    if color.lower() not in colors: return await inter.response.send_message(f"Pick {', '.join(colors)}", ephemeral=True)
+    d["balance"]-=bval; await save_all()
+    roll = random.choice(colors)
+    # gold 6x, others 4.5x
+    mult = 6.0 if color.lower()=="gold" else 4.5
+    if roll==color.lower():
+        win=int(bval*mult); d["balance"]+=win; d["profit"]+=win-bval; d["wagered"]+=bval; await save_all()
+        await inter.response.send_message(f"🎲 Rolled **{roll}** | ✅ WIN {fmt(win)} ({mult}x)")
+    else:
+        d["profit"]-=bval; d["wagered"]+=bval; await save_all()
+        await inter.response.send_message(f"🎲 Rolled **{roll}** vs your **{color}** | ❌ Lost {fmt(bval)}")
 
-@bot.tree.command(name="tip", description="Tip gems to a member")
-async def tip_cmd(interaction: discord.Interaction, user: discord.Member, amount: str):
-    await interaction.response.defer()
-    if user.id == interaction.user.id: return await interaction.followup.send("Can't tip yourself!")
-    try: bval = parse_amount(amount)
-    except: return await interaction.followup.send("Use 1M")
-    d = get_data(interaction.user.id)
-    if d["balance"] < bval: return await interaction.followup.send(f"You have {fmt(d['balance'])} only!")
-    d["balance"] -= bval; d2 = get_data(user.id); d2["balance"] += bval; await save_all()
-    await interaction.followup.send(f"💸 {interaction.user.mention} tipped **{fmt(bval)}** to {user.mention}")
+# --- 5. CHICKEN CROSS INFINITE - YOUR SPECS 58% LANE1, 1.15x growing ---
+class ChickenView(discord.ui.View):
+    def __init__(self, uid, bet):
+        super().__init__(timeout=300); self.uid=uid; self.bet=bet; self.pos=0; self.mult=1.0
+    def get_mult(self, pos): 
+        return round(1.15 * (1.15 ** (pos-1)) if pos>0 else 1.0, 2)
+    def get_safe(self, pos): 
+        return max(0.05, 0.58 - pos * 0.06) # 58% lane1
+    def get_board(self):
+        board=""
+        for i in range(max(0, self.pos-2), self.pos+3):
+            if i < self.pos: board+="✅ "
+            elif i==self.pos: board+="🐔 "
+            else: board+="🟩 "
+        return board
 
-bot.run(os.getenv("TOKEN"))
+@bot.tree.command(name="chickencross", description="Chicken cross infinite")
+async def chicken_cmd(inter: discord.Interaction, bet: str):
+    try: bval=parse_amount(bet)
+    except: return await inter.response.send_message("Bad bet",ephemeral=True)
+    d=get_data(inter.user.id)
+    if d["balance"]<bval: return await inter.response.send_message(f"Need {fmt(bval)}",ephemeral=True)
+    d["balance"]-=bval; await save_all()
+    view=ChickenView(inter.user.id, bval)
+    embed=discord.Embed(color=0xF1C40F, title="🐔 Chicken Cross - INFINITE")
+    embed.description=f"💎 Bet `{fmt(bval)}`\n\n{view.get_board()}\n\nLane `0` | Next `1.15x` (58% safe)"
+    go_btn=discord.ui.Button(label="🐔 GO to 1.15x (58% safe)", style=discord.ButtonStyle.primary)
+    cash_btn=discord.ui.Button(label="💸 CASHOUT", style=discord.ButtonStyle.success, disabled=True)
+    view.add_item(go_btn); view.add_item(cash_btn)
+    async def go_cb(i: discord.Interaction):
+        if i.user.id!=view.uid: return await i.response.send_message("Not yours",ephemeral=True)
+        safe=view.get_safe(view.pos)
+        if random.random()>safe:
+            embed2=discord.Embed(color=0xED4245, title="🍗 FRIED!")
+            embed2.description=f"💎 Bet `{fmt(bval)}`\n\n{view.get_board().replace('🐔','🔥')}\n\n💥 Fried at lane {view.pos+1} | {int(safe*100)}% was safe"
+            d2=get_data(i.user.id); d2["wagered"]+=bval; d2["profit"]-=bval; await save_all()
+            for c in view.children: c.disabled=True
+            await i.response.edit_message(embed=embed2, view=view); view.stop()
+        else:
+            view.pos+=1; view.mult=view.get_mult(view.pos)
+            next_mult=view.get_mult(view.pos+1); next_safe=int(view.get_safe(view.pos)*100)
+            cash_btn.disabled=False; cash_btn.label=f"💸 CASHOUT {view.mult}x = {fmt(int(bval*view.mult))}"
+            go_btn.label=f"🐔 GO to {next_mult}x ({next_safe}% safe)"
+            embed2=discord.Embed(color=0xF1C40F, title="🐔 Chicken Cross - INFINITE")
+            embed2.description=f"💎 Bet `{fmt(bval)}`\n\n{view.get_board()}\n\nLane `{view.pos}` | Current `{view.mult}x` = {fmt(int(bval*view.mult))}\nNext `{next_mult}x` - {next_safe}% safe"
+            await i.response.edit_message(embed=embed2, view=view)
+    async def cash_cb(i: discord.Interaction):
+        if i.user.id!=view.uid: return await i.response.send_message("Not yours",ephemeral=True)
+        win=int(bval*view.mult); d2=get_data(i.user.id); d2["balance"]+=win; d2["wagered"]+=bval; d2["profit"]+=win-bval; await save_all()
+        embed2=discord.Embed(color=0xFEE75C, title="💰 CASHOUT"); embed2.description=f"Lane {view.pos} | {view.mult}x = {fmt(win)}"
+        for c in view.children: c.disabled=True
+        await i.response.edit_message(embed=embed2, view=view); view.stop()
+    go_btn.callback=go_cb; cash_btn.callback=cash_cb
+    await inter.response.send_message(embed=embed, view=view)
+
+bot.run(TOKEN)
+    
