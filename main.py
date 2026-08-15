@@ -84,7 +84,6 @@ async def bal_cmd(inter: discord.Interaction, user: discord.Member=None):
     wag_str = f"{fmt(d['wagered'])}"
     prof_str = f"{fmt(d['profit'])}"
     embed = discord.Embed(color=0x2B2D31, title=f"{t.display_name}'s balance")
-    # Emojis like PS99 - gems have gem emoji
     embed.description = f"💎 Balance {bal_str}\n📥 Deposited {dep_str}\n📤 Withdrawn {with_str}\n💎 Wagered {wag_str}\n💸 Profit {prof_str}"
     embed.set_thumbnail(url=t.display_avatar.url)
     await inter.response.send_message(embed=embed, view=BalanceView())
@@ -132,14 +131,14 @@ async def tip_cmd(inter: discord.Interaction, user: discord.Member, amount: str)
     await save_all()
     await inter.response.send_message(f"{inter.user.mention} tipped {fmt(b)} gems to {user.mention}")
 
-# MINES PS99 - HIDDEN, NO ONE CAN SEE EARLY
+# MINES FIXED - NO "APPLICATION DID NOT RESPOND"
 class MinesView(discord.ui.View):
     def __init__(self, uid, bet, bombs=23):
         super().__init__(timeout=300)
         self.uid = uid
         self.bet = bet
         self.bombs = bombs
-        self.mine_pos = set(random.sample(range(25), bombs))  # Secret, only server knows
+        self.mine_pos = set(random.sample(range(25), bombs))
         self.revealed = set()
         self.mult = 1.0
         for i in range(25):
@@ -149,18 +148,17 @@ class MinesView(discord.ui.View):
 
     def make_callback(self, idx):
         async def callback(inter: discord.Interaction):
-            # Only owner can click - others get "Not yours"
             if inter.user.id != self.uid:
-                return await inter.response.send_message("This is not your game! Only the player can see and click.", ephemeral=True)
+                return await inter.response.send_message("Not your game!", ephemeral=True)
             if idx in self.revealed:
                 return await inter.response.defer()
-            await inter.response.defer()  # Fix timeout so GEM/BOMB shows
+            await inter.response.defer()
             self.revealed.add(idx)
             if idx in self.mine_pos:
                 embed = discord.Embed(color=0xED4245, title="Mines - BUSTED")
                 gems_found = len([r for r in self.revealed if r not in self.mine_pos])
                 total_gems = 25 - self.bombs
-                embed.description = f"Bet {fmt(self.bet)}\nReached {self.mult:.1f}x\nGems found {gems_found}/{total_gems}\nBombs {self.bombs}\n\nYou struck a bomb and lost your bet. bomb shows every mine."
+                embed.description = f"💎 Bet {fmt(self.bet)}\n✨ Reached {self.mult:.1f}x\n💎 Gems found {gems_found}/{total_gems}\n💣 Bombs {self.bombs}\n\nYou struck a bomb and lost your bet."
                 embed.set_thumbnail(url=inter.user.display_avatar.url)
                 final_view = discord.ui.View()
                 for j in range(25):
@@ -186,7 +184,7 @@ class MinesView(discord.ui.View):
             embed = discord.Embed(color=0x2B2D31, title="Mines")
             total_gems = 25 - self.bombs
             win_now = int(self.bet * self.mult)
-            embed.description = f"Bet {fmt(self.bet)}\nReached {self.mult:.1f}x\nGems found {gems_found}/{total_gems}\nBombs {self.bombs}\n\nCurrent {fmt(win_now)}"
+            embed.description = f"💎 Bet {fmt(self.bet)}\n✨ Reached {self.mult:.1f}x\n💎 Gems found {gems_found}/{total_gems}\n💣 Bombs {self.bombs}\n\nCurrent {fmt(win_now)}"
             embed.set_thumbnail(url=inter.user.display_avatar.url)
             new_view = MinesView(self.uid, self.bet, self.bombs)
             new_view.mine_pos = self.mine_pos
@@ -214,7 +212,7 @@ class MinesView(discord.ui.View):
                 d["withdrawn"] += win
                 await save_all()
                 e = discord.Embed(color=0x57F287, title="Mines - CASHOUT")
-                e.description = f"Bet {fmt(new_view.bet)}\nReached {new_view.mult}x\nGems found {gems_found}/{total_gems}\nBombs {new_view.bombs}\n\nWon {fmt(win)}!"
+                e.description = f"💎 Bet {fmt(new_view.bet)}\n✨ Reached {new_view.mult}x\n💎 Gems {gems_found}/{total_gems}\n\nWon {fmt(win)}!"
                 e.set_thumbnail(url=c_inter.user.display_avatar.url)
                 await c_inter.edit_original_response(embed=e, view=discord.ui.View())
                 new_view.stop()
@@ -224,7 +222,7 @@ class MinesView(discord.ui.View):
             self.stop()
         return callback
 
-@bot.tree.command(name="mines", description="Play mines")
+@bot.tree.command(name="mines", description="Play mines PS99")
 async def mines_cmd(inter: discord.Interaction, bet: str, bombs: int=23):
     try:
         bval=parse_amount(bet, get_data(inter.user.id)["balance"])
@@ -240,7 +238,7 @@ async def mines_cmd(inter: discord.Interaction, bet: str, bombs: int=23):
     view=MinesView(inter.user.id, bval, bombs)
     embed = discord.Embed(color=0x2B2D31, title="Mines")
     total_gems = 25 - bombs
-    embed.description = f"Bet {fmt(bval)}\nReached 1.0x\nGems found 0/{total_gems}\nBombs {bombs}\n\nOnly you can click! Bombs are hidden."
+    embed.description = f"💎 Bet {fmt(bval)}\n✨ Reached 1.0x\n💎 Gems found 0/{total_gems}\n💣 Bombs {bombs}"
     embed.set_thumbnail(url=inter.user.display_avatar.url)
     await inter.response.send_message(embed=embed, view=view)
 
@@ -274,7 +272,7 @@ class ColorDiceView(discord.ui.View):
         picked_info = COLORS[picked_key]
         await inter.response.defer()
         embed_roll = discord.Embed(color=0x2B2D31, title="Color Dice")
-        embed_roll.description = f"Bet {fmt(self.bet)}\n\n⬜ 🟪 🟩 🟫 🟦 🟧\n\nRolling the dice."
+        embed_roll.description = f"💎 Bet {fmt(self.bet)}\n\n⬜ 🟪 🟩 🟫 🟦 🟧\n\nRolling the dice."
         embed_roll.set_thumbnail(url=inter.user.display_avatar.url)
         await inter.edit_original_response(embed=embed_roll, view=self)
         await asyncio.sleep(1.5)
@@ -295,24 +293,24 @@ class ColorDiceView(discord.ui.View):
         await save_all()
         if matches == 0:
             final = discord.Embed(color=0xED4245, title="Color Dice")
-            final.description = f"Bet {fmt(self.bet)}\nMultiplier {mult}x ({fmt(win)})\n\nDice roll {dice_str}\nYour pick {picked_info['emoji']} {picked_info['name']}\nMatches {matches} - 0 col = 0x LOSE"
+            final.description = f"💎 Bet {fmt(self.bet)}\nMultiplier {mult}x ({fmt(win)})\n\nDice roll {dice_str}\nYour pick {picked_info['emoji']} {picked_info['name']}\nMatches {matches} - 0 col = 0x LOSE"
         elif matches == 1:
             final = discord.Embed(color=0x57F287, title="Color Dice")
-            final.description = f"Bet {fmt(self.bet)}\nMultiplier {mult}x ({fmt(win)})\n\nDice roll {dice_str}\nYour pick {picked_info['emoji']} {picked_info['name']}\nMatches {matches} - 1 col = 2x"
+            final.description = f"💎 Bet {fmt(self.bet)}\nMultiplier {mult}x ({fmt(win)})\n\nDice roll {dice_str}\nYour pick {picked_info['emoji']} {picked_info['name']}\nMatches {matches} - 1 col = 2x"
         elif matches == 2:
             final = discord.Embed(color=0xF1C40F, title="Color Dice")
-            final.description = f"Bet {fmt(self.bet)}\nMultiplier {mult}x ({fmt(win)})\n\nDice roll {dice_str}\nYour pick {picked_info['emoji']} {picked_info['name']}\nMatches {matches} - 2 col = 0.48x"
+            final.description = f"💎 Bet {fmt(self.bet)}\nMultiplier {mult}x ({fmt(win)})\n\nDice roll {dice_str}\nYour pick {picked_info['emoji']} {picked_info['name']}\nMatches {matches} - 2 col = 0.48x"
         elif matches == 3:
             final = discord.Embed(color=0x57F287, title="Color Dice")
-            final.description = f"Bet {fmt(self.bet)}\nMultiplier {mult}x ({fmt(win)})\n\nDice roll {dice_str}\nYour pick {picked_info['emoji']} {picked_info['name']}\nMatches {matches} - 3 col = 3x"
+            final.description = f"💎 Bet {fmt(self.bet)}\nMultiplier {mult}x ({fmt(win)})\n\nDice roll {dice_str}\nYour pick {picked_info['emoji']} {picked_info['name']}\nMatches {matches} - 3 col = 3x"
         else:
             final = discord.Embed(color=0x57F287, title="Color Dice")
-            final.description = f"Bet {fmt(self.bet)}\nMultiplier {mult}x ({fmt(win)})\n\nDice roll {dice_str}\nYour pick {picked_info['emoji']} {picked_info['name']}\nMatches {matches} - {matches} col = 4x"
+            final.description = f"💎 Bet {fmt(self.bet)}\nMultiplier {mult}x ({fmt(win)})\n\nDice roll {dice_str}\nYour pick {picked_info['emoji']} {picked_info['name']}\nMatches {matches} - {matches} col = 4x"
         final.set_thumbnail(url=inter.user.display_avatar.url)
         await inter.edit_original_response(embed=final, view=discord.ui.View())
         self.stop()
 
-@bot.tree.command(name="colordice", description="Color dice")
+@bot.tree.command(name="colordice", description="Color dice PS99")
 async def colordice_cmd(inter: discord.Interaction, bet: str):
     try:
         bval=parse_amount(bet, get_data(inter.user.id)["balance"])
@@ -324,7 +322,7 @@ async def colordice_cmd(inter: discord.Interaction, bet: str):
     d["balance"]-=bval
     await save_all()
     embed = discord.Embed(color=0x2B2D31, title="Color Dice")
-    embed.description = f"Bet {fmt(bval)}\n\nPayout\n0 col -> 0x LOSE\n1 col -> 2x\n2 col -> 0.48x\n3 col -> 3x\n4 col -> 4x\n5 col -> 4x\n6 col -> 4x"
+    embed.description = f"💎 Bet {fmt(bval)}\n\nPayout\n0 col -> 0x LOSE\n1 col -> 2x\n2 col -> 0.48x\n3 col -> 3x\n4 col -> 4x\n5 col -> 4x\n6 col -> 4x"
     embed.set_thumbnail(url=inter.user.display_avatar.url)
     view = ColorDiceView(inter.user.id, bval)
     await inter.response.send_message(embed=embed, view=view)
@@ -363,7 +361,7 @@ async def blackjack_cmd(inter: discord.Interaction, bet: str):
             ph.append(deck.pop())
             if score(ph)>21:
                 e=discord.Embed(color=0xED4245, title="Blackjack - BUST!")
-                e.description = f"Bet {fmt(bval)}\nYou {ph} = {score(ph)}\nDealer [{dh[0]}, ?]\n\nLost {fmt(bval)}"
+                e.description = f"💎 Bet {fmt(bval)}\nYou {ph} = {score(ph)}\nDealer [{dh[0]}, ?]\n\nLost {fmt(bval)}"
                 e.set_thumbnail(url=inter.user.display_avatar.url)
                 dd=get_data(i2.user.id)
                 dd["wagered"]+=bval
@@ -375,7 +373,7 @@ async def blackjack_cmd(inter: discord.Interaction, bet: str):
                 self.stop()
             else:
                 e=discord.Embed(color=0x2B2D31, title="Blackjack")
-                e.description = f"Bet {fmt(bval)}\nYou {ph} = {score(ph)}\nDealer [{dh[0]}, ?]"
+                e.description = f"💎 Bet {fmt(bval)}\nYou {ph} = {score(ph)}\nDealer [{dh[0]}, ?]"
                 e.set_thumbnail(url=inter.user.display_avatar.url)
                 await i2.edit_original_response(embed=e, view=self)
         @discord.ui.button(label="STAND", style=discord.ButtonStyle.success, emoji="✋")
@@ -399,14 +397,14 @@ async def blackjack_cmd(inter: discord.Interaction, bet: str):
                 await save_all()
                 e.color=0x57F287
                 e.title="Blackjack - WIN!"
-                e.description = f"Bet {fmt(bval)}\nYou {ph} = {ps}\nDealer {dh} = {ds}\n\nWon {fmt(win)}!"
+                e.description = f"💎 Bet {fmt(bval)}\nYou {ph} = {ps}\nDealer {dh} = {ds}\n\nWon {fmt(win)}!"
             elif ps==ds:
                 dd=get_data(i2.user.id)
                 dd["balance"]+=bval
                 await save_all()
                 e.color=0xFEE75C
                 e.title="Blackjack - PUSH"
-                e.description = f"Bet {fmt(bval)}\nYou {ps} vs {ds}\nRefund {fmt(bval)}"
+                e.description = f"💎 Bet {fmt(bval)}\nYou {ps} vs {ds}\nRefund {fmt(bval)}"
             else:
                 dd=get_data(i2.user.id)
                 dd["wagered"]+=bval
@@ -414,17 +412,17 @@ async def blackjack_cmd(inter: discord.Interaction, bet: str):
                 await save_all()
                 e.color=0xED4245
                 e.title="Blackjack - LOSE"
-                e.description = f"Bet {fmt(bval)}\nYou {ph} = {ps}\nDealer {dh} = {ds}\nLost {fmt(bval)}"
+                e.description = f"💎 Bet {fmt(bval)}\nYou {ph} = {ps}\nDealer {dh} = {ds}\nLost {fmt(bval)}"
             for c in self.children:
                 c.disabled=True
             await i2.edit_original_response(embed=e, view=self)
             self.stop()
     em=discord.Embed(color=0x2B2D31, title="Blackjack")
-    em.description = f"Bet {fmt(bval)}\nYou {ph} = {score(ph)}\nDealer [{dh[0]}, ?]"
+    em.description = f"💎 Bet {fmt(bval)}\nYou {ph} = {score(ph)}\nDealer [{dh[0]}, ?]"
     em.set_thumbnail(url=inter.user.display_avatar.url)
     await inter.response.send_message(embed=em, view=BJView())
 
-# ROCKET VISUAL FLYING NO INFINITE
+# ROCKET VISUAL NO INFINITE
 def get_rocket_visual(mult):
     height = min(int(mult * 1.5), 10)
     lines = []
@@ -439,4 +437,10 @@ def get_rocket_visual(mult):
             lines.append("🌎 Earth")
         elif i == 1:
             lines.append("☁️☁️☁️")
-        els
+        else:
+            if i % 3 == 0 and i < height:
+                lines.append("✨ · ✨")
+            else:
+                lines.append("   ·   ")
+    visual = "\n".join(lines)
+    visual += f"\n{'─'*12}\nAltitude: {mult:.
