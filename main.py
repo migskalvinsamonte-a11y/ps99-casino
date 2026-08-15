@@ -1,9 +1,9 @@
 import discord, os, json, random, asyncio
 from discord.ext import commands
 
-TOKEN = os.getenv("TOKEN") or os.getenv("DISCORD_TOKEN") or os.getenv("BOT_TOKEN")
-if not TOKEN or TOKEN == "YOUR_TOKEN_HERE":
-    TOKEN = None
+# RAILWAY DOES TOKEN - NO TOKEN IN CODE - SET IN RAILWAY VARIABLES
+TOKEN = os.getenv("TOKEN")
+print(f"Checking Railway TOKEN... Found: {'YES' if TOKEN else 'NO - SET IN VARIABLES!'}")
 
 DATA_FILE = "data.json"
 OWNER_ID = 1536946071769718784
@@ -58,7 +58,7 @@ def get_data(uid):
     return d
 
 def add_affiliate_reward(wager_uid, wager_amount):
-    """5% added to wagered, NOT money - as requested"""
+    """5% added to wagered, NOT money"""
     try:
         d = get_data(wager_uid)
         ref_id = d.get("referred_by")
@@ -67,15 +67,14 @@ def add_affiliate_reward(wager_uid, wager_amount):
         if str(ref_id) == str(wager_uid):
             return
         ref_data = get_data(ref_id)
-        bonus = int(wager_amount * 0.05)  # 5% to wagered
+        bonus = int(wager_amount * 0.05)
         if bonus <=0:
             return
-        # Add 5% to referrer's wagered, not balance
         ref_data["wagered"] += bonus
         ref_data["affiliate_wagered"] += bonus
         ref_data["affiliate_earnings"] += bonus
     except Exception as e:
-        print(f"aff reward error {e}")
+        print(f"aff error {e}")
 
 def parse_amount(s, bal=0):
     s=str(s).lower().replace(",","").strip()
@@ -190,7 +189,6 @@ async def tip_cmd(inter: discord.Interaction, user: discord.Member, amount: str)
     except Exception as e:
         await inter.followup.send(f"Error {e}", ephemeral=True)
 
-# AFFILIATE 5% TO WAGERED - NOT MONEY
 @bot.tree.command(name="affiliate", description="Show your affiliate code and stats")
 async def affiliate_cmd(inter: discord.Interaction):
     try:
@@ -207,11 +205,8 @@ async def affiliate_cmd(inter: discord.Interaction):
             f"💎 **Stats**\n"
             f"👥 Referrals: {count}\n"
             f"📈 Wagered from referrals: {fmt(earnings)} ({fmt_full(earnings)})\n"
-            f"⚡ Rate: 5% of their bet is ADDED to YOUR wagered (not money, not taken from them)\n\n"
-            f"**How it works:**\n"
-            f"1. Friend claims your code\n"
-            f"2. When they bet 1M, you get +50K wagered (5%)\n"
-            f"3. Check `/affiliate_list` to see referrals"
+            f"⚡ Rate: 5% of their bet ADDED to YOUR wagered (not money)\n\n"
+            f"Check `/affiliate_list` to see referrals"
         )
         embed.set_thumbnail(url=inter.user.display_avatar.url)
         await inter.followup.send(embed=embed)
@@ -230,7 +225,7 @@ async def affiliate_claim_cmd(inter: discord.Interaction, code: str):
             return await inter.followup.send("You can't refer yourself!", ephemeral=True)
         if code not in data:
             if not code.isdigit():
-                return await inter.followup.send("Invalid code! Use numbers only.", ephemeral=True)
+                return await inter.followup.send("Invalid code!", ephemeral=True)
             get_data(code)
         ref_data = get_data(code)
         d["referred_by"] = code
@@ -238,7 +233,7 @@ async def affiliate_claim_cmd(inter: discord.Interaction, code: str):
             ref_data["referrals"].append(str(inter.user.id))
         await save_all()
         embed = discord.Embed(color=0x57F287, title="✅ Claimed!")
-        embed.description = f"You claimed `{code}` from <@{code}>!\nNow they get 5% of your bets added to THEIR wagered."
+        embed.description = f"You claimed `{code}` from <@{code}>!\nThey get 5% of your bets added to THEIR wagered."
         embed.set_thumbnail(url=inter.user.display_avatar.url)
         await inter.followup.send(embed=embed)
     except Exception as e:
@@ -254,9 +249,9 @@ async def affiliate_list_cmd(inter: discord.Interaction):
         embed = discord.Embed(color=0x2B2D31, title=f"👥 Referrals - {len(referrals)} - 5% to Wagered")
         embed.set_thumbnail(url=inter.user.display_avatar.url)
         if not referrals:
-            embed.description = f"No referrals yet!\n\nCode: `{d['affiliate_code']}`\nShare: `/affiliate_claim code:{d['affiliate_code']}`\n\nWagered from refs: {fmt(earnings)}"
+            embed.description = f"No referrals yet!\nCode: `{d['affiliate_code']}`\nShare: `/affiliate_claim code:{d['affiliate_code']}`\nWagered from refs: {fmt(earnings)}"
         else:
-            desc = f"💰 Wagered from refs: {fmt(earnings)} ({fmt_full(earnings)})\nCode: `{d['affiliate_code']}` - 5% to YOUR wagered\n\n**Referrals:**\n"
+            desc = f"💰 Wagered from refs: {fmt(earnings)} ({fmt_full(earnings)})\nCode: `{d['affiliate_code']}`\n\n**Referrals:**\n"
             for i, rid in enumerate(referrals[:20], 1):
                 try:
                     rdata = get_data(rid)
@@ -264,7 +259,7 @@ async def affiliate_list_cmd(inter: discord.Interaction):
                     user_obj = inter.guild.get_member(int(rid)) if inter.guild else None
                     name = user_obj.display_name if user_obj else f"User {rid[:6]}..."
                     bonus = int(wagered*0.05)
-                    desc += f"{i}. {name} (<@{rid}>) - Wagered {fmt(wagered)} => You got +{fmt(bonus)} wagered\n"
+                    desc += f"{i}. {name} (<@{rid}>) - Wagered {fmt(wagered)} => +{fmt(bonus)} to you\n"
                 except:
                     desc += f"{i}. <@{rid}>\n"
             if len(referrals) > 20:
@@ -284,7 +279,7 @@ async def affiliates_cmd(inter: discord.Interaction):
         embed = discord.Embed(color=0x2B2D31, title=f"👥 Referrals - {len(referrals)}")
         embed.set_thumbnail(url=inter.user.display_avatar.url)
         if not referrals:
-            embed.description = f"No referrals yet! Code: `{d['affiliate_code']}` - 5% to wagered"
+            embed.description = f"No referrals! Code: `{d['affiliate_code']}` - 5% to wagered"
         else:
             desc = f"Wagered from refs: {fmt(earnings)}\n\n"
             for i, rid in enumerate(referrals[:20], 1):
@@ -293,9 +288,8 @@ async def affiliates_cmd(inter: discord.Interaction):
             embed.description = desc
         await inter.followup.send(embed=embed)
     except Exception as e:
-        print(f"aff alias error {e}")
+        print(f"alias error {e}")
 
-# MINES
 class MinesView(discord.ui.View):
     def __init__(self, uid, bet, bombs=23):
         super().__init__(timeout=300)
@@ -309,7 +303,6 @@ class MinesView(discord.ui.View):
             btn = discord.ui.Button(label="?", style=discord.ButtonStyle.secondary, custom_id=str(i), row=i//5)
             btn.callback = self.make_callback(i)
             self.add_item(btn)
-
     def make_callback(self, idx):
         async def callback(inter: discord.Interaction):
             try:
@@ -391,7 +384,7 @@ class MinesView(discord.ui.View):
                 await inter.edit_original_response(embed=embed, view=new_view)
                 self.stop()
             except Exception as e:
-                print(f"mines callback error {e}")
+                print(f"mines cb error {e}")
         return callback
 
 @bot.tree.command(name="mines", description="Play mines PS99")
@@ -413,9 +406,8 @@ async def mines_cmd(inter: discord.Interaction, bet: str, bombs: int=23):
         embed.set_thumbnail(url=inter.user.display_avatar.url)
         await inter.followup.send(embed=embed, view=view)
     except Exception as e:
-        print(f"mines cmd error {e}")
+        print(f"mines error {e}")
 
-# COLOR DICE
 COLORS = {
     "white": {"emoji": "⬜", "name": "White"},
     "purple": {"emoji": "🟪", "name": "Purple"},
@@ -437,7 +429,6 @@ class ColorDiceView(discord.ui.View):
         select = discord.ui.Select(placeholder="Choose your color...", options=options)
         select.callback = self.select_callback
         self.add_item(select)
-
     async def select_callback(self, inter: discord.Interaction):
         try:
             if inter.user.id != self.uid:
@@ -460,4 +451,12 @@ class ColorDiceView(discord.ui.View):
             if mult > 0:
                 d["balance"] += win
                 d["profit"] += win - self.bet
-      
+                d["withdrawn"] += win
+            else:
+                d["profit"] -= self.bet
+            d["wagered"] += self.bet
+            add_affiliate_reward(inter.user.id, self.bet)
+            await save_all()
+            if matches == 0:
+                final = discord.Embed(color=0xED4245, title="Color Dice")
+                final.description = f"?
